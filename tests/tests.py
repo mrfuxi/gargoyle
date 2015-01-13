@@ -1037,6 +1037,121 @@ class TemplateTagTest(TestCase):
         self.assertTrue('hello world!' in rendered)
 
 
+class NegatedTemplateTagTest(TestCase):
+    urls = 'tests.urls'
+
+    def setUp(self):
+        self.user = User.objects.create(username='foo', email='foo@example.com')
+        self.gargoyle = SwitchManager(Switch, key='key', value='value', instances=True)
+        self.gargoyle.register(UserConditionSet(User))
+
+    def test_simple(self):
+        Switch.objects.create(
+            key='test',
+            status=GLOBAL,
+        )
+
+        template = Template("""
+            {% load gargoyle_tags %}
+            {% ifnotswitch test %}
+            hello world!
+            {% endifnotswitch %}
+        """)
+        rendered = template.render(Context())
+
+        self.assertFalse('hello world!' in rendered)
+
+    def test_else(self):
+        Switch.objects.create(
+            key='test',
+            status=DISABLED,
+        )
+
+        template = Template("""
+            {% load gargoyle_tags %}
+            {% ifnotswitch test %}
+            hello world!
+            {% else %}
+            foo bar baz
+            {% endifnotswitch %}
+        """)
+        rendered = template.render(Context())
+
+        self.assertFalse('foo bar baz' in rendered)
+        self.assertTrue('hello world!' in rendered)
+
+    def test_with_request(self):
+        condition_set = 'gargoyle.builtins.UserConditionSet(auth.user)'
+
+        switch = Switch.objects.create(
+            key='test',
+            status=SELECTIVE,
+        )
+        switch = self.gargoyle['test']
+
+        switch.add_condition(
+            condition_set=condition_set,
+            field_name='percent',
+            condition='0-50',
+        )
+
+        request = HttpRequest()
+        request.user = self.user
+
+        template = Template("""
+            {% load gargoyle_tags %}
+            {% ifnotswitch test %}
+            hello world!
+            {% else %}
+            foo bar baz
+            {% endifnotswitch %}
+        """)
+        rendered = template.render(Context({'request': request}))
+
+        self.assertTrue('foo bar baz' in rendered)
+        self.assertFalse('hello world!' in rendered)
+
+    def test_missing_name(self):
+        self.assertRaises(TemplateSyntaxError, Template, """
+            {% load gargoyle_tags %}
+            {% ifnotswitch %}
+            hello world!
+            {% endifnotswitch %}
+        """)
+
+    def test_with_custom_objects(self):
+        condition_set = 'gargoyle.builtins.UserConditionSet(auth.user)'
+
+        switch = Switch.objects.create(
+            key='test',
+            status=SELECTIVE,
+        )
+        switch = self.gargoyle['test']
+
+        switch.add_condition(
+            condition_set=condition_set,
+            field_name='percent',
+            condition='0-50',
+        )
+
+        request = HttpRequest()
+        request.user = self.user
+
+        # Pass in request.user explicitly.
+        template = Template("""
+            {% load gargoyle_tags %}
+            {% ifnotswitch test request.user %}
+            hello world!
+            {% else %}
+            foo bar baz
+            {% endifnotswitch %}
+        """)
+        rendered = template.render(Context({'request': request}))
+
+        self.assertTrue('foo bar baz' in rendered)
+        self.assertFalse('hello world!' in rendered)
+
+
 class HostConditionSetTest(TestCase):
     def setUp(self):
         self.gargoyle = SwitchManager(Switch, key='key', value='value', instances=True, auto_create=True)
